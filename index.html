@@ -46,7 +46,6 @@
         .graph-render-box { background: #ffffff; border: 2px dashed #f43f5e; padding: 15px; border-radius: 6px; margin-top: 10px; display: inline-block; min-width: 320px; font-family: 'Courier New', Courier, monospace; color: #000; font-size: 14px; white-space: pre; line-height: 1.3; }
         .btn-convert-box { background: #fff1f2; border: 1px solid #fecdd3; padding: 10px; border-radius: 4px; margin-top: 8px; }
         .preview-img { max-width: 350px; max-height: 250px; margin-top: 8px; border-radius: 4px; border: 2px solid #10b981; object-fit: contain; background: #fff; display: block; }
-        #fileName { line-height: 1.8; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -62,9 +61,8 @@
         </div>
 
         <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-            <p style="font-size: 16px; margin: 0;">Kéo thả <strong>nhiều file</strong> vào đây hoặc <strong>nhấp chuột để chọn tệp tin</strong></p>
-            <p style="font-size: 13px; color: #555; margin: 6px 0 0;">Hỗ trợ: ảnh (.png, .jpg, .jpeg), tài liệu (.docx, .xlsx, .pdf) — Có thể chọn nhiều file cùng lúc</p>
-            <input type="file" id="fileInput" style="display:none" accept=".png,.jpg,.jpeg,.docx,.xlsx,.pdf" multiple>
+            <p style="font-size: 16px; margin: 0;">Kéo thả file đề thi vào đây hoặc <strong>nhấp chuột để chọn nhiều tệp tin</strong></p>
+            <input type="file" id="fileInput" style="display:none" multiple accept=".png,.jpg,.jpeg,.docx,.xlsx,.pdf">
             <div id="fileName" style="font-weight: bold; color: #2563eb; margin-top: 12px;"></div>
         </div>
 
@@ -134,7 +132,7 @@
         const statusDiv = document.getElementById('status');
         const apiKeyInput = document.getElementById('apiKeyInput');
 
-        let selectedFiles = []; // Mảng chứa nhiều file
+        let selectedFiles = [];
         let globalParsedData = []; 
         let rowImages = {}; // Bộ nhớ tạm lưu dữ liệu ảnh Base64 sau khi chụp bảng
 
@@ -143,11 +141,16 @@
         dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
         dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFileSelect(e.dataTransfer.files); });
 
+        function formatSelectedFiles(files) {
+            const names = files.map(file => file.name);
+            if (names.length <= 3) return names.join(', ');
+            return `${names.length} tệp đã chọn: ${names.slice(0, 3).join(', ')}...`;
+        }
+
         function handleFileSelect(files) {
             if(files.length > 0) {
                 selectedFiles = Array.from(files);
-                const names = selectedFiles.map(f => `📄 ${f.name}`).join('<br>');
-                fileNameDiv.innerHTML = `<span style="color:#374151;">Đã chọn <strong>${selectedFiles.length}</strong> file:</span><br>${names}`;
+                fileNameDiv.innerText = "Tệp đã chọn: " + formatSelectedFiles(selectedFiles);
                 processBtn.disabled = false;
                 hideAllSections();
                 statusDiv.innerText = "";
@@ -209,7 +212,7 @@
         async function startProcessing() {
             const apiKey = apiKeyInput.value.trim();
             if(!apiKey) { alert("Vui lòng nhập Gemini API Key!"); return; }
-            if(selectedFiles.length === 0) return;
+            if(!selectedFiles || selectedFiles.length === 0) return;
 
             processBtn.disabled = true;
             hideAllSections();
@@ -218,38 +221,30 @@
             rowImages = {};
 
             try {
-                let combinedRawText = "";
-                let imageParts = []; // Mảng chứa nhiều ảnh
+                    let rawText = "";
+                    let imageParts = [];
 
-                for (let i = 0; i < selectedFiles.length; i++) {
-                    const file = selectedFiles[i];
-                    const fileExtension = file.name.split('.').pop().toLowerCase();
-                    const isImage = ['png', 'jpg', 'jpeg'].includes(fileExtension);
+                    for (let i = 0; i < selectedFiles.length; i++) {
+                        const file = selectedFiles[i];
+                        const fileExtension = file.name.split('.').pop().toLowerCase();
+                        statusDiv.innerText = `Đang đọc tệp ${i + 1}/${selectedFiles.length}: ${file.name}`;
 
-                    statusDiv.innerText = `Đang xử lý file ${i + 1}/${selectedFiles.length}: ${file.name}...`;
-
-                    if (isImage) {
-                        const part = await fileToGenerativePart(file);
-                        imageParts.push(part);
-                    } else if (fileExtension === 'pdf') {
-                        combinedRawText += `\n\n--- Nội dung từ file: ${file.name} ---\n`;
-                        combinedRawText += await extractTextFromPDF(file);
-                    } else if (fileExtension === 'docx') {
-                        const res = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-                        combinedRawText += `\n\n--- Nội dung từ file: ${file.name} ---\n`;
-                        combinedRawText += res.value;
-                    } else if (fileExtension === 'xlsx') {
-                        const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-                        combinedRawText += `\n\n--- Nội dung từ file: ${file.name} ---\n`;
-                        workbook.SheetNames.forEach(name => { combinedRawText += XLSX.utils.sheet_to_txt(workbook.Sheets[name]) + "\n"; });
+                        if (['png', 'jpg', 'jpeg'].includes(fileExtension)) {
+                            imageParts.push(await fileToGenerativePart(file));
+                        } else if (fileExtension === 'pdf') {
+                            rawText += `\n---\nTên tệp: ${file.name}\n` + await extractTextFromPDF(file);
+                        } else if (fileExtension === 'docx') {
+                            const res = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+                            rawText += `\n---\nTên tệp: ${file.name}\n` + res.value;
+                        } else if (fileExtension === 'xlsx') {
+                            const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+                            workbook.SheetNames.forEach(name => {
+                                rawText += `\n---\nTên tệp: ${file.name} - Sheet: ${name}\n` + XLSX.utils.sheet_to_txt(workbook.Sheets[name]) + "\n";
+                            });
+                        }
                     }
-                }
 
-                const hasText = combinedRawText.trim().length > 0;
-                const hasImages = imageParts.length > 0;
-
-                if (!hasText && !hasImages) throw new Error("Không trích xuất được nội dung từ các tệp đã chọn.");
-
+                    if (imageParts.length === 0 && !rawText.trim()) throw new Error("Không trích xuất được văn bản thô.");
                 statusDiv.innerText = "AI đang phân tách đề thi & bóc tách cấu trúc đồ thị dữ liệu...";
 
                 const aiPrompt = `Bạn là chuyên gia cấu trúc đề thi. Hãy bóc tách văn bản đề thi và xuất ra mảng JSON sạch.
@@ -264,7 +259,7 @@ CẤU TRÚC JSON PHẢI LÀ MỘT MẢNG DANH SÁCH CHỨA CÁC ĐỐI TƯỢNG 
 - maDe: Chuỗi mã đề.
 - stt: Số thứ tự câu.
 - cauHoi: Nội dung văn bản câu hỏi.
-- duLieuDoThi: Nếu câu hỏi chứa bảng biểu, đồ thị hoặc sơ đồ bằng ký tự/text, hãy tách riêng phần bảng đó ra và biểu diễn bằng định dạng bảng HTML (<table>) hoặc khối text rõ ràng tại đây để hiển thị. Nếu không có bảng biểu đồ thị, để trống "".
+- duLieuDoThi: Nếu câu hỏi chứa bảng biểu, đồ thị hoặc sơ đồ bằng ký tự/text, hãy giữ nguyên nội dung và cấu trúc như trong ảnh hoặc file gốc; không giải thích, không giải bài, chỉ chuyển đúng bảng/đồ thị như đang thấy. Nếu không có bảng biểu đồ thị, để trống "".
 - a: Lựa chọn A.
 - b: Lựa chọn B.
 - c: Lựa chọn C.
@@ -274,15 +269,17 @@ CẤU TRÚC JSON PHẢI LÀ MỘT MẢNG DANH SÁCH CHỨA CÁC ĐỐI TƯỢNG 
 
 CHÚ Ý: Chỉ trả về chuỗi JSON mảng thuần túy, KHÔNG bọc trong các ký tự markdown \`\`\`json ở đầu và cuối.
 
-Văn bản cần quét:\n${combinedRawText}`;
+Văn bản cần quét:\n${rawText}`;
 
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-                
-                // Xây dựng parts: ảnh trước, text prompt sau
-                const parts = [...imageParts, { text: aiPrompt }];
-                
+                const contentParts = [];
+                if (imageParts.length > 0) {
+                    contentParts.push(...imageParts);
+                }
+                contentParts.push({ text: aiPrompt });
+
                 let requestBody = {
-                    contents: [{ parts }],
+                    contents: [{ parts: contentParts }],
                     generationConfig: { responseMimeType: "application/json" }
                 };
 
@@ -291,7 +288,7 @@ Văn bản cần quét:\n${combinedRawText}`;
                 if (aiData.error) throw new Error("Lỗi API: " + aiData.error.message);
 
                 const jsonString = aiData.candidates[0].content.parts[0].text.trim();
-                globalParsedData = JSON.parse(jsonString);
+                globalParsedData = JSON.parse(jsonString); 
 
                 statusDiv.style.color = "#10b981";
                 statusDiv.innerText = `Thành công! Đã bóc tách ${globalParsedData.length} câu hỏi. Hãy ấn nút 'Chuyển đổi thành file ảnh' đối với các câu có đồ thị/bảng biểu trước khi sao chép dán.`;
