@@ -46,7 +46,6 @@
         .graph-render-box { background: #ffffff; border: 2px dashed #f43f5e; padding: 15px; border-radius: 6px; margin-top: 10px; display: inline-block; min-width: 320px; font-family: 'Courier New', Courier, monospace; color: #000; font-size: 14px; white-space: pre; line-height: 1.3; }
         .btn-convert-box { background: #fff1f2; border: 1px solid #fecdd3; padding: 10px; border-radius: 4px; margin-top: 8px; }
         .preview-img { max-width: 350px; max-height: 250px; margin-top: 8px; border-radius: 4px; border: 2px solid #10b981; object-fit: contain; background: #fff; display: block; }
-        #fileName { line-height: 1.8; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -62,9 +61,8 @@
         </div>
 
         <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-            <p style="font-size: 16px; margin: 0;">Kéo thả <strong>nhiều file</strong> vào đây hoặc <strong>nhấp chuột để chọn tệp tin</strong></p>
-            <p style="font-size: 13px; color: #555; margin: 6px 0 0;">Hỗ trợ: ảnh (.png, .jpg, .jpeg), tài liệu (.docx, .xlsx, .pdf) — Có thể chọn nhiều file cùng lúc</p>
-            <input type="file" id="fileInput" style="display:none" accept=".png,.jpg,.jpeg,.docx,.xlsx,.pdf" multiple>
+            <p style="font-size: 16px; margin: 0;">Kéo thả file đề thi vào đây hoặc <strong>nhấp chuột để chọn tệp tin</strong></p>
+            <input type="file" id="fileInput" style="display:none" accept=".png,.jpg,.jpeg,.docx,.xlsx,.pdf">
             <div id="fileName" style="font-weight: bold; color: #2563eb; margin-top: 12px;"></div>
         </div>
 
@@ -134,7 +132,7 @@
         const statusDiv = document.getElementById('status');
         const apiKeyInput = document.getElementById('apiKeyInput');
 
-        let selectedFiles = []; // Mảng chứa nhiều file
+        let selectedFile = null;
         let globalParsedData = []; 
         let rowImages = {}; // Bộ nhớ tạm lưu dữ liệu ảnh Base64 sau khi chụp bảng
 
@@ -145,9 +143,8 @@
 
         function handleFileSelect(files) {
             if(files.length > 0) {
-                selectedFiles = Array.from(files);
-                const names = selectedFiles.map(f => `📄 ${f.name}`).join('<br>');
-                fileNameDiv.innerHTML = `<span style="color:#374151;">Đã chọn <strong>${selectedFiles.length}</strong> file:</span><br>${names}`;
+                selectedFile = files[0];
+                fileNameDiv.innerText = "Tệp đã chọn: " + selectedFile.name;
                 processBtn.disabled = false;
                 hideAllSections();
                 statusDiv.innerText = "";
@@ -209,7 +206,7 @@
         async function startProcessing() {
             const apiKey = apiKeyInput.value.trim();
             if(!apiKey) { alert("Vui lòng nhập Gemini API Key!"); return; }
-            if(selectedFiles.length === 0) return;
+            if(!selectedFile) return;
 
             processBtn.disabled = true;
             hideAllSections();
@@ -218,37 +215,24 @@
             rowImages = {};
 
             try {
-                let combinedRawText = "";
-                let imageParts = []; // Mảng chứa nhiều ảnh
+                const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
+                let isImage = ['png', 'jpg', 'jpeg'].includes(fileExtension);
+                let rawText = "";
+                let imagePart = null;
 
-                for (let i = 0; i < selectedFiles.length; i++) {
-                    const file = selectedFiles[i];
-                    const fileExtension = file.name.split('.').pop().toLowerCase();
-                    const isImage = ['png', 'jpg', 'jpeg'].includes(fileExtension);
-
-                    statusDiv.innerText = `Đang xử lý file ${i + 1}/${selectedFiles.length}: ${file.name}...`;
-
-                    if (isImage) {
-                        const part = await fileToGenerativePart(file);
-                        imageParts.push(part);
-                    } else if (fileExtension === 'pdf') {
-                        combinedRawText += `\n\n--- Nội dung từ file: ${file.name} ---\n`;
-                        combinedRawText += await extractTextFromPDF(file);
-                    } else if (fileExtension === 'docx') {
-                        const res = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-                        combinedRawText += `\n\n--- Nội dung từ file: ${file.name} ---\n`;
-                        combinedRawText += res.value;
-                    } else if (fileExtension === 'xlsx') {
-                        const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-                        combinedRawText += `\n\n--- Nội dung từ file: ${file.name} ---\n`;
-                        workbook.SheetNames.forEach(name => { combinedRawText += XLSX.utils.sheet_to_txt(workbook.Sheets[name]) + "\n"; });
-                    }
+                if (isImage) {
+                    imagePart = await fileToGenerativePart(selectedFile);
+                } else if (fileExtension === 'pdf') {
+                    rawText = await extractTextFromPDF(selectedFile);
+                } else if (fileExtension === 'docx') {
+                    const res = await mammoth.extractRawText({ arrayBuffer: await selectedFile.arrayBuffer() });
+                    rawText = res.value;
+                } else if (fileExtension === 'xlsx') {
+                    const workbook = XLSX.read(new Uint8Array(await selectedFile.arrayBuffer()), { type: 'array' });
+                    workbook.SheetNames.forEach(name => { rawText += XLSX.utils.sheet_to_txt(workbook.Sheets[name]) + "\n"; });
                 }
 
-                const hasText = combinedRawText.trim().length > 0;
-                const hasImages = imageParts.length > 0;
-
-                if (!hasText && !hasImages) throw new Error("Không trích xuất được nội dung từ các tệp đã chọn.");
+                if(!isImage && !rawText.trim()) throw new Error("Không trích xuất được văn bản thô.");
 
                 statusDiv.innerText = "AI đang phân tách đề thi & bóc tách cấu trúc đồ thị dữ liệu...";
 
@@ -274,22 +258,80 @@ CẤU TRÚC JSON PHẢI LÀ MỘT MẢNG DANH SÁCH CHỨA CÁC ĐỐI TƯỢNG 
 
 CHÚ Ý: Chỉ trả về chuỗi JSON mảng thuần túy, KHÔNG bọc trong các ký tự markdown \`\`\`json ở đầu và cuối.
 
-Văn bản cần quét:\n${combinedRawText}`;
+Văn bản cần quét:\n${rawText}`;
 
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-                
-                // Xây dựng parts: ảnh trước, text prompt sau
-                const parts = [...imageParts, { text: aiPrompt }];
-                
-                let requestBody = {
-                    contents: [{ parts }],
-                    generationConfig: { responseMimeType: "application/json" }
-                };
+                // Danh sách model ưu tiên: thử lần lượt nếu bị lỗi quota
+                const MODEL_LIST = [
+                    "gemini-2.5-flash-lite",
+                    "gemini-2.5-flash",
+                    "gemini-3.5-flash",
+                ];
 
-                const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-                const aiData = await response.json();
-                if (aiData.error) throw new Error("Lỗi API: " + aiData.error.message);
+                // Hàm đếm ngược hiển thị cho người dùng
+                async function countdown(seconds, modelName) {
+                    for (let i = seconds; i > 0; i--) {
+                        statusDiv.style.color = "#f59e0b";
+                        statusDiv.innerText = `⏳ Model ${modelName} bị giới hạn quota. Tự động thử lại sau ${i} giây...`;
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                }
 
+                // Hàm gọi API có retry tự động
+                async function callGeminiWithRetry(prompt, imgPart) {
+                    for (let m = 0; m < MODEL_LIST.length; m++) {
+                        const modelName = MODEL_LIST[m];
+                        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                        const requestBody = {
+                            contents: [{ parts: imgPart ? [imgPart, { text: prompt }] : [{ text: prompt }] }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        };
+
+                        let retryCount = 0;
+                        const MAX_RETRIES = 3;
+
+                        while (retryCount <= MAX_RETRIES) {
+                            statusDiv.style.color = "#2563eb";
+                            statusDiv.innerText = `🤖 Đang gọi AI (model: ${modelName}, lần thử ${retryCount + 1})...`;
+
+                            const response = await fetch(url, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(requestBody)
+                            });
+                            const aiData = await response.json();
+
+                            if (!aiData.error) {
+                                // Thành công
+                                return aiData;
+                            }
+
+                            const errMsg = aiData.error.message || "";
+                            const isQuotaError = response.status === 429 || errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED");
+
+                            if (isQuotaError) {
+                                // Trích xuất thời gian chờ từ message (nếu có), mặc định 60s
+                                const matchTime = errMsg.match(/retry in ([\d.]+)s/i);
+                                const waitSeconds = matchTime ? Math.ceil(parseFloat(matchTime[1])) + 2 : 62;
+
+                                if (retryCount < MAX_RETRIES) {
+                                    await countdown(waitSeconds, modelName);
+                                    retryCount++;
+                                } else {
+                                    // Hết số lần thử với model này, chuyển sang model tiếp theo
+                                    statusDiv.innerText = `⚠️ Model ${modelName} đã hết quota. Đang chuyển sang model khác...`;
+                                    await new Promise(r => setTimeout(r, 1500));
+                                    break; // thoát vòng while, sang model tiếp theo
+                                }
+                            } else {
+                                // Lỗi khác không phải quota → ném lỗi ngay
+                                throw new Error("Lỗi API: " + errMsg);
+                            }
+                        }
+                    }
+                    throw new Error("Tất cả các model đều bị giới hạn quota. Vui lòng đợi vài phút rồi thử lại.");
+                }
+
+                const aiData = await callGeminiWithRetry(aiPrompt, imagePart);
                 const jsonString = aiData.candidates[0].content.parts[0].text.trim();
                 globalParsedData = JSON.parse(jsonString);
 
